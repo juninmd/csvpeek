@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from pathlib import Path
 
 import typer
@@ -11,6 +12,14 @@ import typer
 from .core import column_stats, columns_from_rows
 
 app = typer.Typer(add_completion=False, help="Peek into CSV files.")
+
+
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _neutralize(value: str) -> str:
+    """Prefix spreadsheet-formula starters with ' so Excel/Sheets show them as text."""
+    return f"'{value}" if value.startswith(_FORMULA_PREFIXES) else value
 
 
 def _read(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -56,6 +65,9 @@ def head(
 def select(
     file: Path = typer.Argument(..., exists=True, dir_okay=False),
     columns: str = typer.Argument(..., help="comma-separated column names"),
+    safe: bool = typer.Option(
+        False, "--safe", help="prefix cells starting with = + - @ with ' (spreadsheet safety)"
+    ),
 ) -> None:
     """Project a subset of columns and emit CSV to stdout."""
     header, rows = _read(file)
@@ -64,9 +76,11 @@ def select(
     if missing:
         typer.secho(f"unknown column(s): {', '.join(missing)}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
-    typer.echo(",".join(want))
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    writer.writerow(want)
+    fix = _neutralize if safe else (lambda v: v)
     for r in rows:
-        typer.echo(",".join(r.get(c, "") for c in want))
+        writer.writerow([fix(r.get(c, "")) for c in want])
 
 
 @app.command(name="json")
